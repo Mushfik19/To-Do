@@ -1,0 +1,93 @@
+:root {
+  --bg: #f6efe4;
+  --bg-deep: #eadfce;
+  --panel: rgba(255, 251, 245, 0.72);
+  --field: rgba(129, 94, 65, 0.08);
+  --field-strong: rgba(129, 94, 65, 0.14);
+  --border: rgba(91, 67, 45, 0.12);
+  --border-strong: rgba(255, 122, 89, 0.28);
+  --text: #6a5746;
+  --muted-strong: #8f755f;
+  --heading: #24180f;
+  --accent: #ff9a3c;
+  --accent-strong: #ef5b2a;
+  --shadow-soft:
+    0 24px 60px rgba(126, 84, 45, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+
+  font-family:
+    Bahnschrift, 'Trebuchet MS', 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.76), transparent 32%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+p {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--heading);
+  font-family:
+    Georgia, 'Times New Roman', serif;
+  line-height: 0.98;
+}
+
+h1 {
+  font-size: clamp(3.2rem, 7vw, 5.8rem);
+  letter-spacing: -0.06em;
+}
+
+h2 {
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  letter-spacing: -0.04em;
+}
+
+h3 {
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
