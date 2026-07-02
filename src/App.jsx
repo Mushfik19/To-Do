@@ -1,404 +1,585 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const STORAGE_KEY = 'mushfik-arman-todo-live-board'
 
-const initialTasks = [
+const categories = ['All', 'Inbox', 'Today', 'Work', 'Personal']
+const priorities = ['Low', 'Normal', 'High']
+const statuses = ['All', 'Open', 'Done']
+const sorts = ['Smart', 'Due', 'Priority', 'Newest']
+const legacyLaneMap = {
+  Ideas: 'Inbox',
+  Build: 'Work',
+  Launch: 'Today',
+}
+
+const sampleTasks = [
   {
     id: 1,
-    title: 'Sketch a bold landing concept',
-    detail: 'Pull references and lock the visual direction before coding.',
-    lane: 'Ideas',
+    title: 'Finish UI polish',
+    note: 'Small spacing, clean cards, mobile check.',
+    category: 'Today',
+    priority: 'High',
+    due: new Date().toISOString().slice(0, 10),
     done: false,
-    createdAt: '2026-06-24T16:30:00.000Z',
-  },
-  {
-    id: 2,
-    title: 'Refactor the todo interactions',
-    detail: 'Make adding, filtering, and marking complete feel instant.',
-    lane: 'Build',
-    done: false,
+    pinned: true,
     createdAt: '2026-06-24T17:00:00.000Z',
   },
   {
-    id: 3,
-    title: 'Ship the final polish pass',
-    detail: 'Tighten spacing, states, and microcopy for a cleaner finish.',
-    lane: 'Launch',
-    done: true,
+    id: 2,
+    title: 'Plan next feature',
+    note: 'Keep it simple and useful.',
+    category: 'Work',
+    priority: 'Normal',
+    due: '',
+    done: false,
+    pinned: false,
     createdAt: '2026-06-24T17:30:00.000Z',
+  },
+  {
+    id: 3,
+    title: 'Clean completed items',
+    note: '',
+    category: 'Inbox',
+    priority: 'Low',
+    due: '',
+    done: true,
+    pinned: false,
+    createdAt: '2026-06-24T18:00:00.000Z',
   },
 ]
 
-const lanes = ['All', 'Ideas', 'Build', 'Launch']
-const statuses = ['All', 'Open', 'Done']
+const blankDraft = {
+  title: '',
+  note: '',
+  category: 'Inbox',
+  priority: 'Normal',
+  due: '',
+}
+
+function normalizeTask(task, index) {
+  const category = legacyLaneMap[task.lane] ?? task.category
+
+  return {
+    id: task.id ?? Date.now() + index,
+    title: task.title ?? 'Untitled task',
+    note: task.note ?? task.detail ?? '',
+    category: categories.includes(category) && category !== 'All' ? category : 'Inbox',
+    priority: priorities.includes(task.priority) ? task.priority : 'Normal',
+    due: task.due ?? '',
+    done: Boolean(task.done),
+    pinned: Boolean(task.pinned),
+    createdAt: task.createdAt ?? new Date().toISOString(),
+  }
+}
 
 function readStoredTasks() {
   const saved = localStorage.getItem(STORAGE_KEY)
 
   if (!saved) {
-    return initialTasks
+    return sampleTasks
   }
 
   try {
     const parsed = JSON.parse(saved)
 
-    if (!Array.isArray(parsed)) {
-      return initialTasks
-    }
-
-    return parsed.map((task, index) => ({
-      id: task.id ?? Date.now() + index,
-      title: task.title ?? 'Untitled task',
-      detail:
-        task.detail ?? 'No extra notes yet. Add context when you need it.',
-      lane: lanes.includes(task.lane) ? task.lane : 'Ideas',
-      done: Boolean(task.done),
-      createdAt: task.createdAt ?? new Date().toISOString(),
-    }))
+    return Array.isArray(parsed) ? parsed.map(normalizeTask) : sampleTasks
   } catch {
-    return initialTasks
+    return sampleTasks
   }
 }
 
-function formatClock(date) {
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(date)
+function isToday(value) {
+  return value === new Date().toISOString().slice(0, 10)
 }
 
-function formatDateLabel(value) {
+function isOverdue(task) {
+  return task.due && !task.done && task.due < new Date().toISOString().slice(0, 10)
+}
+
+function priorityScore(priority) {
+  return { High: 3, Normal: 2, Low: 1 }[priority] ?? 2
+}
+
+function formatDue(value) {
+  if (!value) {
+    return 'Anytime'
+  }
+
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
-  }).format(new Date(value))
+  }).format(new Date(`${value}T00:00:00`))
 }
 
 function App() {
   const [tasks, setTasks] = useState(readStoredTasks)
-  const [title, setTitle] = useState('')
-  const [detail, setDetail] = useState('')
-  const [lane, setLane] = useState('Ideas')
-  const [filter, setFilter] = useState('All')
-  const [statusFilter, setStatusFilter] = useState('All')
+  const [draft, setDraft] = useState(blankDraft)
+  const [editingId, setEditingId] = useState(null)
+  const [categoryFilter, setCategoryFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('Open')
+  const [sortBy, setSortBy] = useState('Smart')
   const [query, setQuery] = useState('')
-  const [focusMode, setFocusMode] = useState(false)
-  const [clock, setClock] = useState(() => formatClock(new Date()))
+  const [compact, setCompact] = useState(false)
+  const currentYear = new Date().getFullYear()
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
   }, [tasks])
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setClock(formatClock(new Date()))
-    }, 1000)
+  const stats = useMemo(() => {
+    const done = tasks.filter((task) => task.done).length
+    const overdue = tasks.filter(isOverdue).length
+    const today = tasks.filter((task) => task.due && isToday(task.due) && !task.done).length
 
-    return () => window.clearInterval(timer)
-  }, [])
+    return {
+      total: tasks.length,
+      open: tasks.length - done,
+      done,
+      overdue,
+      today,
+      progress: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
+    }
+  }, [tasks])
 
-  const normalizedQuery = query.trim().toLowerCase()
-  const visibleTasks = tasks.filter((task) => {
-    const matchesLane = filter === 'All' || task.lane === filter
-    const matchesStatus =
-      statusFilter === 'All' ||
-      (statusFilter === 'Done' && task.done) ||
-      (statusFilter === 'Open' && !task.done)
-    const matchesQuery =
-      !normalizedQuery ||
-      task.title.toLowerCase().includes(normalizedQuery) ||
-      task.detail.toLowerCase().includes(normalizedQuery)
+  const visibleTasks = useMemo(() => {
+    const text = query.trim().toLowerCase()
+    const filtered = tasks.filter((task) => {
+      const matchesCategory =
+        categoryFilter === 'All' || task.category === categoryFilter
+      const matchesStatus =
+        statusFilter === 'All' ||
+        (statusFilter === 'Open' && !task.done) ||
+        (statusFilter === 'Done' && task.done)
+      const matchesQuery =
+        !text ||
+        task.title.toLowerCase().includes(text) ||
+        task.note.toLowerCase().includes(text)
 
-    return matchesLane && matchesStatus && matchesQuery
-  })
+      return matchesCategory && matchesStatus && matchesQuery
+    })
 
-  const completedCount = tasks.filter((task) => task.done).length
-  const activeCount = tasks.length - completedCount
-  const progress = tasks.length
-    ? Math.round((completedCount / tasks.length) * 100)
-    : 0
-  const todayDoneCount = tasks.filter(
-    (task) =>
-      task.done &&
-      new Date(task.createdAt).toDateString() === new Date().toDateString(),
-  ).length
+    return [...filtered].sort((first, second) => {
+      if (first.pinned !== second.pinned) {
+        return first.pinned ? -1 : 1
+      }
+
+      if (first.done !== second.done) {
+        return first.done ? 1 : -1
+      }
+
+      if (sortBy === 'Due') {
+        return (first.due || '9999-12-31').localeCompare(second.due || '9999-12-31')
+      }
+
+      if (sortBy === 'Priority') {
+        return priorityScore(second.priority) - priorityScore(first.priority)
+      }
+
+      if (sortBy === 'Newest') {
+        return new Date(second.createdAt) - new Date(first.createdAt)
+      }
+
+      const firstSmart =
+        priorityScore(first.priority) * 10 -
+        (first.due ? Math.max(0, new Date(first.due) - new Date()) / 86400000 : 30)
+      const secondSmart =
+        priorityScore(second.priority) * 10 -
+        (second.due ? Math.max(0, new Date(second.due) - new Date()) / 86400000 : 30)
+
+      return secondSmart - firstSmart
+    })
+  }, [categoryFilter, query, sortBy, statusFilter, tasks])
+
+  function updateDraft(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }))
+  }
+
+  function resetForm() {
+    setDraft(blankDraft)
+    setEditingId(null)
+  }
 
   function handleSubmit(event) {
     event.preventDefault()
 
-    const cleanTitle = title.trim()
-    const cleanDetail = detail.trim()
+    const title = draft.title.trim()
+    const note = draft.note.trim()
 
-    if (!cleanTitle) {
+    if (!title) {
       return
     }
 
-    setTasks((currentTasks) => [
+    if (editingId) {
+      setTasks((current) =>
+        current.map((task) =>
+          task.id === editingId ? { ...task, ...draft, title, note } : task,
+        ),
+      )
+      resetForm()
+      return
+    }
+
+    setTasks((current) => [
       {
         id: Date.now(),
-        title: cleanTitle,
-        detail: cleanDetail || 'No extra notes yet. Add context when you need it.',
-        lane,
+        ...draft,
+        title,
+        note,
         done: false,
+        pinned: false,
         createdAt: new Date().toISOString(),
       },
-      ...currentTasks,
+      ...current,
     ])
-    setTitle('')
-    setDetail('')
-    setLane('Ideas')
+    resetForm()
   }
 
-  function toggleTask(taskId) {
-    setTasks((currentTasks) =>
-      currentTasks.map((task) =>
-        task.id === taskId ? { ...task, done: !task.done } : task,
-      ),
+  function editTask(task) {
+    setEditingId(task.id)
+    setDraft({
+      title: task.title,
+      note: task.note,
+      category: task.category,
+      priority: task.priority,
+      due: task.due,
+    })
+  }
+
+  function patchTask(taskId, patch) {
+    setTasks((current) =>
+      current.map((task) => (task.id === taskId ? { ...task, ...patch } : task)),
     )
   }
 
   function deleteTask(taskId) {
-    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== taskId))
-  }
+    setTasks((current) => current.filter((task) => task.id !== taskId))
 
-  function clearCompleted() {
-    setTasks((currentTasks) => currentTasks.filter((task) => !task.done))
+    if (editingId === taskId) {
+      resetForm()
+    }
   }
 
   function addQuickTask() {
-    const quickIdeas = [
-      {
-        title: 'Record one wild improvement idea',
-        detail: 'Push beyond the first safe version and write the bolder option.',
-        lane: 'Ideas',
-      },
-      {
-        title: 'Run a five-minute cleanup sprint',
-        detail: 'Fix one rough edge that would bother you again tomorrow.',
-        lane: 'Build',
-      },
-      {
-        title: 'Prepare the handoff note',
-        detail: 'Summarize what changed so the next session starts fast.',
-        lane: 'Launch',
-      },
-    ]
-    const pick = quickIdeas[Math.floor(Math.random() * quickIdeas.length)]
-
-    setTasks((currentTasks) => [
+    setTasks((current) => [
       {
         id: Date.now(),
-        ...pick,
+        title: 'Quick task',
+        note: '',
+        category: 'Inbox',
+        priority: 'Normal',
+        due: '',
         done: false,
+        pinned: false,
         createdAt: new Date().toISOString(),
       },
-      ...currentTasks,
+      ...current,
     ])
   }
 
+  function completeVisible() {
+    const visibleIds = new Set(visibleTasks.map((task) => task.id))
+
+    setTasks((current) =>
+      current.map((task) =>
+        visibleIds.has(task.id) ? { ...task, done: true } : task,
+      ),
+    )
+  }
+
+  function clearCompleted() {
+    setTasks((current) => current.filter((task) => !task.done))
+  }
+
   return (
-    <main className={`app-shell ${focusMode ? 'focus-mode' : ''}`}>
-      <nav className="topbar">
-        <div className="brand-block">
-          <p className="eyebrow">Mushfik Arman</p>
-          <span className="brand-subtitle">Live board for actual work</span>
-        </div>
+    <main className={`app-shell ${compact ? 'compact' : ''}`}>
+      <div className="todo-background" aria-hidden="true">
+        <span className="bg-board board-a">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="bg-board board-b">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="bg-board board-c">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="bg-check check-a" />
+        <span className="bg-check check-b" />
+        <span className="bg-cube cube-a" />
+        <span className="bg-cube cube-b" />
+      </div>
 
-        <div className="topbar-actions">
-          <div className="live-chip">
-            <span className="live-dot"></span>
-            <strong>{clock}</strong>
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">T</span>
+          <div>
+            <h1>Todo</h1>
+            <p>{stats.progress}% done</p>
           </div>
-          <button type="button" onClick={() => setFilter('All')}>
-            Dashboard
-          </button>
-          <button type="button" onClick={() => setFocusMode((value) => !value)}>
-            {focusMode ? 'Exit Focus' : 'Focus Mode'}
-          </button>
-          <button type="button" onClick={addQuickTask}>
-            Quick Drop
-          </button>
-          <button type="button" onClick={clearCompleted}>
-            Clear Done
-          </button>
-        </div>
-      </nav>
-
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <h1>Turn a plain checklist into a small command center.</h1>
-          <p className="hero-text">
-            Your tasks save instantly, filters respond live, and the board stays
-            in motion while you work.
-          </p>
         </div>
 
-        <div className="hero-stats">
+        <div className="progress-track" aria-label={`${stats.progress}% complete`}>
+          <span style={{ width: `${stats.progress}%` }} />
+        </div>
+
+        <div className="stat-grid" aria-label="Task summary">
           <article>
-            <span>{tasks.length}</span>
-            <p>Total missions</p>
+            <span>{stats.open}</span>
+            <p>Open</p>
           </article>
           <article>
-            <span>{activeCount}</span>
-            <p>Still in motion</p>
+            <span>{stats.today}</span>
+            <p>Today</p>
           </article>
           <article>
-            <span>{progress}%</span>
-            <p>Completion pulse</p>
+            <span>{stats.overdue}</span>
+            <p>Late</p>
           </article>
           <article>
-            <span>{todayDoneCount}</span>
-            <p>Wins created today</p>
+            <span>{stats.done}</span>
+            <p>Done</p>
           </article>
         </div>
-      </section>
 
-      <section className="workspace">
-        <div className="composer-card">
-          <div className="card-heading">
-            <h2>Create a mission</h2>
-            <p>Drop in a task, give it a lane, and keep moving.</p>
+        <div className="nav-group" role="tablist" aria-label="Category filter">
+          {categories.map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={categoryFilter === item ? 'active' : ''}
+              onClick={() => setCategoryFilter(item)}
+            >
+              <span>{item}</span>
+              <small>
+                {item === 'All'
+                  ? tasks.length
+                  : tasks.filter((task) => task.category === item).length}
+              </small>
+            </button>
+          ))}
+        </div>
+
+        <div className="task-orbit" aria-hidden="true">
+          <div className="orbit-ring" />
+          <span className="orbit-card card-one" />
+          <span className="orbit-card card-two" />
+          <span className="orbit-card card-three" />
+          <span className="orbit-core" />
+        </div>
+
+      </aside>
+
+      <section className="workbench">
+        <header className="toolbar">
+          <div>
+            <p className="eyebrow">My tasks</p>
+            <h2>{stats.open ? `${stats.open} things left` : 'All clear'}</h2>
           </div>
 
-          <form className="task-form" onSubmit={handleSubmit}>
-            <label>
-              Task title
-              <input
-                type="text"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Design the next big idea"
-              />
-            </label>
+          <div className="toolbar-actions">
+            <button type="button" className="icon-button" onClick={addQuickTask} title="Quick add">
+              <span aria-hidden="true">+</span>
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => setCompact((value) => !value)}
+              title="Compact view"
+            >
+              <span aria-hidden="true">=</span>
+            </button>
+            <button type="button" onClick={completeVisible}>
+              Done shown
+            </button>
+            <button type="button" onClick={clearCompleted}>
+              Clear done
+            </button>
+          </div>
+        </header>
 
-            <label>
-              Notes
-              <textarea
-                value={detail}
-                onChange={(event) => setDetail(event.target.value)}
-                rows="3"
-                placeholder="Add a useful reminder, context, or outcome."
-              />
-            </label>
+        <form className="composer" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            value={draft.title}
+            onChange={(event) => updateDraft('title', event.target.value)}
+            placeholder="Add a task..."
+            aria-label="Task title"
+          />
 
-            <label>
-              Lane
-              <select value={lane} onChange={(event) => setLane(event.target.value)}>
-                {lanes
-                  .filter((item) => item !== 'All')
-                  .map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-              </select>
-            </label>
+          <input
+            type="text"
+            value={draft.note}
+            onChange={(event) => updateDraft('note', event.target.value)}
+            placeholder="Note"
+            aria-label="Task note"
+          />
 
-            <button type="submit">Add mission</button>
-          </form>
-        </div>
+          <select
+            value={draft.category}
+            onChange={(event) => updateDraft('category', event.target.value)}
+            aria-label="Category"
+          >
+            {categories
+              .filter((item) => item !== 'All')
+              .map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+          </select>
 
-        <div className="board-card">
-          <div className="board-topbar">
-            <div>
-              <h2>Mission board</h2>
-              <p>{visibleTasks.length} tasks in the current view.</p>
-            </div>
+          <select
+            value={draft.priority}
+            onChange={(event) => updateDraft('priority', event.target.value)}
+            aria-label="Priority"
+          >
+            {priorities.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
 
-            <div className="board-controls">
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search tasks live..."
-                aria-label="Search tasks"
-              />
+          <input
+            type="date"
+            value={draft.due}
+            onChange={(event) => updateDraft('due', event.target.value)}
+            aria-label="Due date"
+          />
 
-              <div
-                className="filters lane-filters"
-                role="tablist"
-                aria-label="Filter tasks by lane"
+          <button type="submit">{editingId ? 'Save' : 'Add'}</button>
+          {editingId && (
+            <button type="button" className="ghost-button" onClick={resetForm}>
+              Cancel
+            </button>
+          )}
+        </form>
+
+        <div className="controls">
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search"
+            aria-label="Search tasks"
+          />
+
+          <div className="segmented" role="tablist" aria-label="Status filter">
+            {statuses.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={statusFilter === item ? 'active' : ''}
+                onClick={() => setStatusFilter(item)}
               >
-                {lanes.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    className={filter === item ? 'active' : ''}
-                    onClick={() => setFilter(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                className="filters status-filters"
-                role="tablist"
-                aria-label="Filter tasks by status"
-              >
-                {statuses.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    className={statusFilter === item ? 'active' : ''}
-                    onClick={() => setStatusFilter(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
+                {item}
+              </button>
+            ))}
           </div>
 
-          <div className="task-list">
-            {visibleTasks.length ? (
-              visibleTasks.map((task) => (
-                <article
-                  key={task.id}
-                  className={`task-card ${task.done ? 'done' : ''}`}
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value)}
+            aria-label="Sort tasks"
+          >
+            {sorts.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="task-list">
+          {visibleTasks.length ? (
+            visibleTasks.map((task) => (
+              <article
+                key={task.id}
+                className={`task-card priority-${task.priority.toLowerCase()} ${
+                  task.done ? 'done' : ''
+                } ${task.pinned ? 'pinned' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="check-button"
+                  onClick={() => patchTask(task.id, { done: !task.done })}
+                  aria-label={task.done ? 'Mark open' : 'Mark done'}
                 >
-                  <div className="task-main">
-                    <button
-                      type="button"
-                      className="toggle"
-                      aria-label={`Mark ${task.title} as ${
-                        task.done ? 'incomplete' : 'complete'
-                      }`}
-                      onClick={() => toggleTask(task.id)}
-                    >
-                      {task.done ? 'Done' : 'Open'}
-                    </button>
+                  <span aria-hidden="true">{task.done ? 'x' : ''}</span>
+                </button>
 
-                    <div>
-                      <div className="task-meta">
-                        <span className="lane-badge">{task.lane}</span>
-                        <span>{task.done ? 'Completed' : 'In progress'}</span>
-                        <span>{formatDateLabel(task.createdAt)}</span>
-                      </div>
-                      <h3>{task.title}</h3>
-                      <p>{task.detail}</p>
-                    </div>
+                <div className="task-content">
+                  <div className="task-line">
+                    <h3>{task.title}</h3>
+                    <span className={`priority-pill ${task.priority.toLowerCase()}`}>
+                      {task.priority}
+                    </span>
                   </div>
 
+                  {task.note && <p>{task.note}</p>}
+
+                  <div className="task-meta">
+                    <span>{task.category}</span>
+                    <span className={isOverdue(task) ? 'danger' : ''}>
+                      {formatDue(task.due)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="task-actions">
                   <button
                     type="button"
-                    className="delete"
-                    onClick={() => deleteTask(task.id)}
+                    className={task.pinned ? 'icon-button active' : 'icon-button'}
+                    onClick={() => patchTask(task.id, { pinned: !task.pinned })}
+                    title={task.pinned ? 'Unpin' : 'Pin'}
                   >
-                    Remove
+                    <span aria-hidden="true">^</span>
                   </button>
-                </article>
-              ))
-            ) : (
-              <div className="empty-state">
-                <p>No missions match this view right now.</p>
-                <span>Try another filter, clear the search, or add a fresh task.</span>
-              </div>
-            )}
-          </div>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => editTask(task)}
+                    title="Edit"
+                  >
+                    <span aria-hidden="true">/</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button danger-button"
+                    onClick={() => deleteTask(task.id)}
+                    title="Delete"
+                  >
+                    <span aria-hidden="true">x</span>
+                  </button>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="empty-state">
+              <strong>No tasks here</strong>
+              <button type="button" onClick={() => setStatusFilter('All')}>
+                Show all
+              </button>
+            </div>
+          )}
         </div>
+
+        <footer className="site-footer">
+          <div>
+            <strong>Todo Dashboard</strong>
+            <p>Developed by Mushfik Arman</p>
+          </div>
+          <div className="footer-meta">
+            <span>React + Vite</span>
+            <span>All rights reserved (c) {currentYear}</span>
+          </div>
+        </footer>
       </section>
     </main>
   )
